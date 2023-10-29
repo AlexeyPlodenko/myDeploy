@@ -1,0 +1,21 @@
+{
+  "name": "alexeyplodenko/mydeploy",
+  "type": "project",
+  "description": "My deploy tool.",
+  "keywords": [
+    "deploy",
+    "docker",
+    "cd"
+  ],
+  "license": "MIT",
+  "autoload": {
+    "psr-4": {
+      "App\\": "app/"
+    }
+  },
+  "require": {
+    "php": "^8.1",
+    "alexeyplodenko/symfony-php-dumper": "^1.0",
+    "symfony/process": "^6.3"
+  }
+}
