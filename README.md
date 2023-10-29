@@ -81,6 +81,7 @@ try {
     $app->addRunCommand('php artisan route:cache');
     $app->addRunCommand('php artisan view:cache');
 
+    // Upload the files to the server
     $lftpCommands = [];
     $lftpCommands[] = 'set ftp:ssl-protect-data true';
     $lftpCommands[] = 'set ftp:ssl-force true';
