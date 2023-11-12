@@ -32,12 +32,31 @@ abstract class AbstractApp
         $this->timeoutS = $seconds;
     }
 
+    public function getVariable(string $name): string|int|float|null
+    {
+        return $this->variables[$name] ?? null;
+    }
+
     public function setVariable(string $name, string|int|float $value): void
     {
         $this->variables[$name] = $value;
 
         // flushing the cache
         unset($this->variableNames, $this->variableValues);
+    }
+
+    public function copyFile(string $srcPath, string $dstPath): void
+    {
+        copy($srcPath, $dstPath);
+    }
+
+    public function copyFileToTmpDir(string $srcPath): string
+    {
+        $fileName = basename($srcPath);
+        $dstPath = __DIR__ . '/../tmp/' . $fileName;
+        $this->copyFile($srcPath, $dstPath);
+        $this->cleanUp->deleteLocalFile($dstPath);
+        return "./tmp/$fileName";
     }
 
     abstract public function build(): void;

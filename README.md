@@ -81,20 +81,33 @@ try {
     $app->addRunCommand('php artisan route:cache');
     $app->addRunCommand('php artisan view:cache');
 
-    // Upload the files to the server
-    $lftpCommands = [];
-    $lftpCommands[] = 'set ftp:ssl-protect-data true';
-    $lftpCommands[] = 'set ftp:ssl-force true';
-    $lftpCommands[] = 'set ftp:ssl-auth TLS';
-    $lftpCommands[] = 'set ssl:verify-certificate no';
-    $lftpCommands[] = 'set ftps:initial-prot P';
-    $lftpCommands[] = 'open $FTP_HOST';
-    $lftpCommands[] = 'user $FTP_USERNAME $FTP_PASSWORD';
-    $lftpCommands[] = 'lcd /app/';
-    $lftpCommands[] = 'ls -R';
-    $lftpCommands[] = 'mirror --reverse --depth-first --parallel=10 --verbose=1 --no-symlinks --no-perm --exclude /app/.git/ --exclude /app/.docker/ --exclude /app/storage/ /app/ /';
-    $lftpCommandsString = implode('; ', $lftpCommands);
-    $app->addRunCommand("lftp -c \"$lftpCommandsString\"");
+    // Sync files to the server via Rsync over SSH
+    $app->addRunCommand('apt install -y sshpass rsync');
+    $app->addRunCommand(
+        'sshpass -p "$SSH_PASSWORD" rsync -Oae "ssh -o StrictHostKeyChecking=no -p $SSH_PORT" '
+        . '/app/ $SSH_USER@$SSH_HOST:$SSH_APP_PATH'
+    );
+
+    // Migrate the DB
+    $app->addRunCommand(
+        'sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -t $SSH_USER@$SSH_HOST '
+        . '"cd $SSH_APP_PATH; php artisan migrate --force;"'
+    );
+
+//    // upload files to the hosting
+//    $lftpCommands = [];
+//    $lftpCommands[] = 'set ftp:ssl-protect-data true';
+//    $lftpCommands[] = 'set ftp:ssl-force true';
+//    $lftpCommands[] = 'set ftp:ssl-auth TLS';
+//    $lftpCommands[] = 'set ssl:verify-certificate no';
+//    $lftpCommands[] = 'set ftps:initial-prot P';
+//    $lftpCommands[] = 'open $FTP_HOST';
+//    $lftpCommands[] = 'user $FTP_USERNAME $FTP_PASSWORD';
+//    $lftpCommands[] = 'lcd /app/';
+//    $lftpCommands[] = 'ls -R';
+//    $lftpCommands[] = 'mirror --reverse --depth-first --parallel=10 --verbose=1 --no-symlinks --no-perm --exclude /app/.git/ --exclude /app/.docker/ --exclude /app/storage/ /app/ /';
+//    $lftpCommandsString = implode('; ', $lftpCommands);
+//    $app->addRunCommand("lftp -c \"$lftpCommandsString\"");
 
     $app->build();
     // use the build without cache, when you want to avoid the Docker cache

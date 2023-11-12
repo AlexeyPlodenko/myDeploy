@@ -89,20 +89,6 @@ class DockerApp extends AbstractApp
         $this->execProcess(['docker', 'build', '--no-cache', '.']);
     }
 
-    protected function execProcess(array $command)
-    {
-        $dockerBuild = new Process($command);
-        $dockerBuild->setTimeout($this->timeoutS);
-        // we do not want the process to freeze doing something. So let's error if it "stuck"
-        $dockerBuild->setIdleTimeout($this->timeoutS);
-        $dockerBuild->start();
-
-        foreach ($dockerBuild as $data) {
-            echo rtrim($data), "\n";
-        }
-
-    }
-
     public function cleanup(): void
     {
         $this->cleanUp->cleanUp();
@@ -131,6 +117,19 @@ class DockerApp extends AbstractApp
         $this->addCommand("ADD ./tmp/applyVariablesToFile-$id.php /myDeploy/scripts/applyVariablesToFile-$id.php");
         $this->addRunCommand("chmod +x /myDeploy/scripts/applyVariablesToFile-$id.php");
         $this->addRunCommand("php /myDeploy/scripts/applyVariablesToFile-$id.php");
+    }
+
+    protected function execProcess(array $command)
+    {
+        $dockerBuild = new Process($command);
+        $dockerBuild->setTimeout($this->timeoutS);
+        // we do not want the process to freeze doing something. So let's error if it "stuck"
+        $dockerBuild->setIdleTimeout($this->timeoutS);
+        $dockerBuild->start();
+
+        foreach ($dockerBuild as $data) {
+            echo rtrim($data), "\n";
+        }
     }
 
     protected function getDockerFile(): array
