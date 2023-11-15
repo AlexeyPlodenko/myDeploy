@@ -19,6 +19,8 @@ class DockerApp extends AbstractApp
 
     protected string $runCommandsDelimiter = " \\\n && ";
 
+    protected bool $dockerCacheBustEnabled = false;
+
     /**
      * @param string $fromDockerImage Use an image name from the https://hub.docker.com
      */
@@ -81,12 +83,29 @@ class DockerApp extends AbstractApp
 
     public function buildDockerImage(): void
     {
-        $this->execProcess(['docker', 'build', '.']);
+        $cmd = ['docker', 'build', '.'];
+        if ($this->dockerCacheBustEnabled) {
+            $cmd[] = '--build-arg';
+            $cmd[] = 'CACHEBUST=' . time();
+        }
+
+        $this->execProcess($cmd);
     }
 
     public function buildDockerImageNoCache(): void
     {
         $this->execProcess(['docker', 'build', '--no-cache', '.']);
+    }
+
+    /**
+     * After calling this method, the rest of the Dockerfile commands will be executed without Docker cache.
+     *
+     * @return void
+     */
+    public function disableDockerCacheAfterThisLine(): void
+    {
+        $this->dockerCacheBustEnabled = true;
+        $this->addCommand('ARG CACHEBUST');
     }
 
     public function cleanup(): void
