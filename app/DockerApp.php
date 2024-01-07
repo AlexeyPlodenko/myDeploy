@@ -2,6 +2,7 @@
 
 namespace App;
 
+use App\Exceptions\FileException;
 use Symfony\Component\Process\Process;
 
 class DockerApp extends AbstractApp
@@ -12,8 +13,6 @@ class DockerApp extends AbstractApp
      * @var string[]
      */
     protected array $commands = [];
-
-    protected CleanUp $cleanUp;
 
     protected bool $combineRunCommands = false;
 
@@ -26,9 +25,9 @@ class DockerApp extends AbstractApp
      */
     public function __construct(string $fromDockerImage)
     {
-        $this->setFromDockerImage($fromDockerImage);
+        parent::__construct();
 
-        $this->cleanUp = new CleanUp(__DIR__ .'/../');
+        $this->setFromDockerImage($fromDockerImage);
     }
 
     public function setCombineRunCommands(bool $flag = true): void
@@ -48,12 +47,12 @@ class DockerApp extends AbstractApp
         $command = str_replace("\r", "\n", $command);
         $command = preg_replace("/\n/", "\\\n", $command);
 
-        $this->commands[] = "RUN $command";
+        $this->addCommand("RUN $command");
     }
 
     public function addWorkdirCommand(string $command): void
     {
-        $this->commands[] = "WORKDIR $command";
+        $this->addCommand("WORKDIR $command");
     }
 
     public function setFromDockerImage(string $image): void
@@ -83,18 +82,24 @@ class DockerApp extends AbstractApp
 
     public function buildDockerImage(): void
     {
-        $cmd = ['docker', 'build', '.'];
+        $cmd = ['docker', 'build', '--progress=plain'];
+
         if ($this->dockerCacheBustEnabled) {
             $cmd[] = '--build-arg';
             $cmd[] = 'CACHEBUST=' . time();
         }
 
+        $cmd[] = '.';
+
+        $cmd = $this->beforeExecProcess($cmd);
         $this->execProcess($cmd);
     }
 
     public function buildDockerImageNoCache(): void
     {
-        $this->execProcess(['docker', 'build', '--no-cache', '.']);
+        $cmd = ['docker', 'build', '--progress=plain', '--no-cache', '.'];
+        $cmd = $this->beforeExecProcess($cmd);
+        $this->execProcess($cmd);
     }
 
     /**
@@ -113,6 +118,9 @@ class DockerApp extends AbstractApp
         $this->cleanUp->cleanUp();
     }
 
+    /**
+     * @throws FileException
+     */
     public function applyVariablesToFile(string $filePathInDocker): void
     {
         // make a temporary directory, where to put the temporary file
@@ -138,7 +146,7 @@ class DockerApp extends AbstractApp
         $this->addRunCommand("php /myDeploy/scripts/applyVariablesToFile-$id.php");
     }
 
-    protected function execProcess(array $command)
+    protected function execProcess(array $command): void
     {
         $dockerBuild = new Process($command);
         $dockerBuild->setTimeout($this->timeoutS);
@@ -146,8 +154,8 @@ class DockerApp extends AbstractApp
         $dockerBuild->setIdleTimeout($this->timeoutS);
         $dockerBuild->start();
 
-        foreach ($dockerBuild as $data) {
-            echo rtrim($data), "\n";
+        foreach ($dockerBuild as $output) {
+            echo rtrim($output), "\n";
         }
     }
 
@@ -208,5 +216,10 @@ class DockerApp extends AbstractApp
         $dockerFilePath = __DIR__ . '/../Dockerfile';
         file_put_contents($dockerFilePath, $dockerFile);
         $this->cleanUp->deleteLocalFile($dockerFilePath);
+    }
+
+    protected function beforeExecProcess(array $cmd): array
+    {
+        return $cmd;
     }
 }

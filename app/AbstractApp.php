@@ -23,6 +23,13 @@ abstract class AbstractApp
 
     protected ?int $timeoutS;
 
+    protected CleanUp $cleanUp;
+
+    public function __construct()
+    {
+        $this->cleanUp = new CleanUp(__DIR__ .'/../');
+    }
+
     /**
      * @param int|null $seconds Set this value to 0 or NULL to set it to infinity.
      * @return void
