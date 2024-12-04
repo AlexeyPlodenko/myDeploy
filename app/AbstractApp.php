@@ -3,6 +3,7 @@
 namespace App;
 
 use App\Exceptions\FileException;
+use RuntimeException;
 
 abstract class AbstractApp
 {
@@ -25,9 +26,33 @@ abstract class AbstractApp
 
     protected CleanUp $cleanUp;
 
+    protected string $sourceCodePath;
+
+    protected string $tmpPath;
+
+    protected string $tmpDirName = 'my_deploy_tmp';
+
     public function __construct()
     {
         $this->cleanUp = new CleanUp(__DIR__ .'/../');
+    }
+
+    abstract public function build(): void;
+
+    abstract public function applyVariablesToFile(string $filePath): void;
+
+    public function setSourcePath(string $sourceCodePath): void
+    {
+        if (!is_dir($sourceCodePath)) {
+            throw new RuntimeException("Source code path '$sourceCodePath' is not a directory.");
+        }
+
+        $this->sourceCodePath = rtrim($sourceCodePath, '/\\') .'/';
+    }
+
+    protected function getSourCodeAbsolutePath(): string
+    {
+        return realpath($this->sourceCodePath);
     }
 
     /**
@@ -59,30 +84,50 @@ abstract class AbstractApp
 
     public function copyFileToTmpDir(string $srcPath): string
     {
+        $tmpPath = $this->getAbsoluteTmpPath();
+
         $fileName = basename($srcPath);
-        $dstPath = __DIR__ . '/../tmp/' . $fileName;
+        $dstPath = "$tmpPath/$fileName";
         $this->copyFile($srcPath, $dstPath);
+
         $this->cleanUp->deleteLocalFile($dstPath);
-        return "./tmp/$fileName";
+
+        $tmpRelPath = $this->getBuildDirRelativeTmpPath();
+        return "$tmpRelPath/$fileName";
     }
-
-    abstract public function build(): void;
-
-    abstract public function applyVariablesToFile(string $filePath): void;
 
     /**
      * @throws FileException
      */
     protected function makeTmpDirectory(): void
     {
-        $path = __DIR__ . '/../tmp/';
+        $path = $this->getAbsoluteTmpPath();
+
         if (is_file($path)) {
-            throw new FileException("There is a file \"$path\", where the script needs to create a directory.");
+            throw new FileException("There is a file \"$path\", where the script needs to create a temp. directory.");
         }
+
+        $this->cleanUp->deleteLocalDirs($path);
+
         if (is_dir($path)) {
             return;
         }
         mkdir($path);
+    }
+
+    protected function getAbsoluteTmpPath(): string
+    {
+        if (!isset($this->tmpPath)) {
+            $this->tmpPath = $this->getSourCodeAbsolutePath();
+            $this->tmpPath .= "/$this->tmpDirName";
+        }
+
+        return $this->tmpPath;
+    }
+
+    protected function getBuildDirRelativeTmpPath(): string
+    {
+        return "./$this->tmpDirName";
     }
 
     protected function applyVariables(string $string): string
@@ -98,7 +143,13 @@ abstract class AbstractApp
             return;
         }
 
-        $this->variableNames = array_keys($this->variables);
-        $this->variableValues = array_values($this->variables);
+        $vars = [];
+        foreach (getenv() as $key => $value) {
+            $vars["\${$key}"] = $value;
+        }
+        $vars += $this->variables;
+
+        $this->variableNames = array_keys($vars);
+        $this->variableValues = array_values($vars);
     }
 }

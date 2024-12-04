@@ -3,6 +3,7 @@
 namespace App;
 
 use App\Exceptions\FileException;
+use RuntimeException;
 use Symfony\Component\Process\Process;
 
 class DockerApp extends AbstractApp
@@ -20,14 +21,22 @@ class DockerApp extends AbstractApp
 
     protected bool $dockerCacheBustEnabled = false;
 
+    protected string $insideDockerAppPath = '/app/';
+
     /**
      * @param string $fromDockerImage Use an image name from the https://hub.docker.com
      */
-    public function __construct(string $fromDockerImage)
+    public function __construct(string $fromDockerImage, string $sourceCodePath = './')
     {
         parent::__construct();
 
+        $this->setSourcePath($sourceCodePath);
         $this->setFromDockerImage($fromDockerImage);
+    }
+
+    public function getInsideDockerAppPath(): string
+    {
+        return $this->insideDockerAppPath;
     }
 
     public function setCombineRunCommands(bool $flag = true): void
@@ -40,6 +49,11 @@ class DockerApp extends AbstractApp
         $this->commands[] = $command;
     }
 
+    public function prependCommand(string $command): void
+    {
+        array_unshift($this->commands, $command);
+    }
+
     public function addRunCommand(string $command): void
     {
         // escaping new lines for Dockerfile
@@ -50,9 +64,14 @@ class DockerApp extends AbstractApp
         $this->addCommand("RUN $command");
     }
 
-    public function addWorkdirCommand(string $command): void
+    public function keepDockerContainerRunning(): void
     {
-        $this->addCommand("WORKDIR $command");
+        $this->addCommand('CMD ["sleep", "infinity"]');
+    }
+
+    public function addWorkdirCommand(string $path): void
+    {
+        $this->addCommand("WORKDIR $path");
     }
 
     public function setFromDockerImage(string $image): void
@@ -73,6 +92,9 @@ class DockerApp extends AbstractApp
 
     public function buildWithoutCache(): void
     {
+        $this->dockerCacheBustEnabled = true;
+        $this->prependCommand('ARG CACHEBUST');
+
         $dockerFileRows = $this->getDockerFile();
         $dockerFile = implode("\n", $dockerFileRows);
 
@@ -82,7 +104,11 @@ class DockerApp extends AbstractApp
 
     public function buildDockerImage(): void
     {
-        $cmd = ['docker', 'build', '--progress=plain'];
+        $cmd = [];
+
+        $cmd[] = 'docker';
+        $cmd[] = 'build';
+        $cmd[] = '--progress=plain';
 
         if ($this->dockerCacheBustEnabled) {
             $cmd[] = '--build-arg';
@@ -92,14 +118,39 @@ class DockerApp extends AbstractApp
         $cmd[] = '.';
 
         $cmd = $this->beforeExecProcess($cmd);
+
         $this->execProcess($cmd);
     }
 
     public function buildDockerImageNoCache(): void
     {
-        $cmd = ['docker', 'build', '--progress=plain', '--no-cache', '.'];
+        $cmd = [];
+
+        $cmd[] = 'docker';
+        $cmd[] = 'build';
+        $cmd[] = '--progress=plain';
+        $cmd[] = '--no-cache';
+
+        if ($this->dockerCacheBustEnabled) {
+            $cmd[] = '--build-arg';
+            $cmd[] = 'CACHEBUST=' . time();
+        }
+
+        $cmd[] = '.';
+
         $cmd = $this->beforeExecProcess($cmd);
+
         $this->execProcess($cmd);
+    }
+
+    protected function isWindows(): bool
+    {
+        return PHP_OS_FAMILY === 'Windows';
+    }
+
+    protected function isLinux(): bool
+    {
+        return PHP_OS_FAMILY === 'Linux';
     }
 
     /**
@@ -125,10 +176,11 @@ class DockerApp extends AbstractApp
     {
         // make a temporary directory, where to put the temporary file
         $this->makeTmpDirectory();
+        $absTmpPath = $this->getAbsoluteTmpPath();
 
         // create a file copy with a unique name, to insert the variables into it
         $id = uniqid('vars', true);
-        $tmpFilePath = __DIR__ . "/../tmp/applyVariablesToFile-$id.php";
+        $tmpFilePath = "$absTmpPath/applyVariablesToFile-$id.php";
         $this->cleanUp->deleteLocalFile($tmpFilePath);
         copy(__DIR__ . '/../resources/php/applyVariablesToFile.php', $tmpFilePath);
 
@@ -140,8 +192,10 @@ class DockerApp extends AbstractApp
         file_put_contents($tmpFilePath, $tmpFileData);
 
         // add the PHP script file to the Docker image, to be run during the build stage
+        $buildDirRelTmpPath = $this->getBuildDirRelativeTmpPath();
+
         $this->addRunCommand('mkdir -p /myDeploy/scripts/');
-        $this->addCommand("ADD ./tmp/applyVariablesToFile-$id.php /myDeploy/scripts/applyVariablesToFile-$id.php");
+        $this->addCommand("ADD $buildDirRelTmpPath/applyVariablesToFile-$id.php /myDeploy/scripts/applyVariablesToFile-$id.php");
         $this->addRunCommand("chmod +x /myDeploy/scripts/applyVariablesToFile-$id.php");
         $this->addRunCommand("php /myDeploy/scripts/applyVariablesToFile-$id.php");
     }
@@ -149,9 +203,18 @@ class DockerApp extends AbstractApp
     protected function execProcess(array $command): void
     {
         $dockerBuild = new Process($command);
+
+        $cwd = $this->getSourCodeAbsolutePath();
+        $dockerBuild->setWorkingDirectory($cwd);
+
         $dockerBuild->setTimeout($this->timeoutS);
         // we do not want the process to freeze doing something. So let's error if it "stuck"
         $dockerBuild->setIdleTimeout($this->timeoutS);
+
+
+        $processCmd = $dockerBuild->getCommandLine();
+        echo "Executing the command\n$processCmd\n\n";
+
         $dockerBuild->start();
 
         foreach ($dockerBuild as $output) {
@@ -165,6 +228,10 @@ class DockerApp extends AbstractApp
 
         $fromDockerImage = $this->applyVariables($this->fromDockerImage);
         $dockerFile[] = "FROM $fromDockerImage";
+
+        $this->prependCommand("WORKDIR $this->insideDockerAppPath");
+        $this->prependCommand("ADD ./ $this->insideDockerAppPath");
+        $this->prependCommand("RUN mkdir $this->insideDockerAppPath");
 
         if ($this->combineRunCommands) {
             $commands = $this->combineRunCommands($this->commands);
@@ -213,7 +280,7 @@ class DockerApp extends AbstractApp
 
     protected function writeDockerfile(string $dockerFile): void
     {
-        $dockerFilePath = __DIR__ . '/../Dockerfile';
+        $dockerFilePath = $this->getDockerfilePath();
         file_put_contents($dockerFilePath, $dockerFile);
         $this->cleanUp->deleteLocalFile($dockerFilePath);
     }
@@ -221,5 +288,39 @@ class DockerApp extends AbstractApp
     protected function beforeExecProcess(array $cmd): array
     {
         return $cmd;
+    }
+
+    protected function getSourCodePathDockerStyle(): string
+    {
+        $path = $this->getSourCodeAbsolutePath();
+
+        if ($this->isWindows()) {
+            if (!preg_match('/^[a-z]:/i', $path)) {
+                throw new RuntimeException("Real source path '$path' does not start with a disk name.");
+            }
+
+            // making the disk lower case https://stackoverflow.com/questions/40213524/using-absolute-path-with-docker-run-command-not-working#comment67699400_40214650
+            $pathSegments = explode(':', $path, 2);
+            $pathSegments[0] = strtolower($pathSegments[0]);
+            $path = implode(':', $pathSegments);
+
+            // replaces Windows slashes with Linux ones
+//            $path = str_replace(DIRECTORY_SEPARATOR, '/', $path);
+
+//            $path = "\\$path";
+        }
+
+        return $path;
+    }
+
+    protected function getDockerfilePath(): string
+    {
+        return "{$this->sourceCodePath}/Dockerfile";
+    }
+
+    protected function getDockerfilePathDockerStyle(): string
+    {
+        $path = $this->getSourCodePathDockerStyle();
+        return "{$path}\\Dockerfile";
     }
 }

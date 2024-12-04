@@ -12,6 +12,13 @@ class CleanUp
      */
     protected array $deleteLocalFiles = [];
 
+    /**
+     * @var string[]
+     */
+    protected array $deleteLocalDirs = [];
+
+    protected int $baseDirPathLength;
+
     public function __construct(protected string $baseDirPath)
     {
         if (!$this->baseDirPath) {
@@ -29,9 +36,14 @@ class CleanUp
         $this->deleteLocalFiles[] = $filePath;
     }
 
+    public function deleteLocalDirs(string $dirPath): void
+    {
+        $this->deleteLocalDirs[] = $dirPath;
+    }
+
     public function cleanUp(): void
     {
-        $baseDirPathLength = mb_strlen($this->baseDirPath);
+        $this->baseDirPathLength = mb_strlen($this->baseDirPath);
 
         foreach ($this->deleteLocalFiles as $filePath) {
             $filePath = realpath($filePath);
@@ -40,14 +52,61 @@ class CleanUp
                 continue;
             }
 
-            if (mb_substr($filePath, 0, $baseDirPathLength) !== $this->baseDirPath) {
-                throw new RuntimeException(
-                    "The file is outside of the project's directory. "
-                    . "For security reasons accessing files outside of the project is prohibited."
-                );
-            }
+            $this->ensurePathIsInsideBasePath($filePath);
 
             unlink($filePath);
         }
+
+        foreach ($this->deleteLocalDirs as $dirPath) {
+            $dirPath = realpath($dirPath);
+            if (!$dirPath) {
+                // the file does not exist
+                continue;
+            }
+
+            $this->ensurePathIsInsideBasePath($dirPath);
+
+            $this->deleteDirectory($dirPath);
+        }
+    }
+
+    /**
+     * @throws RuntimeException
+     */
+    protected function ensurePathIsInsideBasePath(string $path): void
+    {
+        if (mb_substr($path, 0, $this->baseDirPathLength) !== $this->baseDirPath) {
+            throw new RuntimeException(
+                  'The file/directory is outside of the project\'s directory. '
+                . 'For security reasons accessing files outside of the project is prohibited.'
+            );
+        }
+    }
+
+    /**
+     * @author https://stackoverflow.com/a/1653776
+     */
+    protected function deleteDirectory(string $dir): bool
+    {
+        if (!file_exists($dir)) {
+            return true;
+        }
+
+        if (!is_dir($dir)) {
+            return unlink($dir);
+        }
+
+        foreach (scandir($dir) as $item) {
+            if ($item === '.' || $item === '..') {
+                continue;
+            }
+
+            if (!$this->deleteDirectory($dir . DIRECTORY_SEPARATOR . $item)) {
+                return false;
+            }
+
+        }
+
+        return rmdir($dir);
     }
 }

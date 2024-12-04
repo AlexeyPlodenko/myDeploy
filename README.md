@@ -2,18 +2,31 @@
 
 This tool purpose is to run a build process in the local/development environment using a Docker container, for isolation, and without relying on 3rd party services.
 
+The purpose of the PHP script, rather than a plain Dockerfile, is to have access to variables at all stages of the build process.
+
+## How the build process works?
+
+The code from the `deploy.php` file writes a Dockerfile. The build is happening based on the Dockerfile, which is being executed inside Docker in an isolated environment.
+
 ## To start
 
 Create a `/deploy.php` file in the root of the project and use the following code as boilerplate for that file. Here I am building a Laravel project on PHP 8.1 from GitHub, using Ubuntu as a build OS, installing Composer and NPM packages, and deploying the files to the hosting environment via an FTPs connection.
+
+Run the file `php deploy.php`.
+
+## Variables
+
+You can define the variables in the `deploy.php` script, using PHP `$app->setVariable('$ENV', 'production');` or you can use system environment variables explicitly in the code, without setting the variable with the `$app->setVariable()` method.
+
+Any variable that is defined using the `$app->setVariable()` method or exists as a system variable can be used in the `$app->addRunCommand('mkdir $PATH')` command or applied to a file `$app->applyVariablesToFile('/app/.env');`.
 
 ```php
 <?php
 require 'vendor/autoload.php';
 
 // 'ubuntu' is the name of the FROM image for Dockerfile
-$app = new \App\DockerApp('ubuntu');
-$app->setTimeout(3 * 3600); // set the PHP script execution time limit to 3 hours
-$app->setCombineRunCommands(true); // set this to false, while developing/debugging this script, to speed up the builds
+$app = new \App\DockerApp('ubuntu', './path/to/your/source/directory/');
+$app->setTimeout(3600); // set the PHP script execution time limit to 1 hour
 try {
     $app->setVariable('$ENV', 'production');
     $app->setVariable('$LARAVEL_DB_HOST', '');
@@ -110,7 +123,7 @@ try {
 //    $app->addRunCommand("lftp -c \"$lftpCommandsString\"");
 
     $app->build();
-    // use the build without cache, when you want to avoid the Docker cache
+    // comment the previous line and uncomment the next one, when you want to avoid the Docker cache
 //    $app->buildWithoutCache();
 } finally {
     // comment this line out to be able to debug the created Dockerfile and file copy scripts in the /tmp/ directory
