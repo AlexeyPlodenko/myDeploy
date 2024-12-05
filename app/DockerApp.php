@@ -227,7 +227,7 @@ class DockerApp extends AbstractApp
         $dockerFile = [];
 
         $fromDockerImage = $this->applyVariables($this->fromDockerImage);
-        $dockerFile[] = "FROM $fromDockerImage";
+        $dockerFile[] = "FROM --platform=linux/amd64 $fromDockerImage";
 
         $this->prependCommand("WORKDIR $this->insideDockerAppPath");
         $this->prependCommand("ADD ./ $this->insideDockerAppPath");
